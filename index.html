@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<link rel="manifest" href="manifest.json">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitor BTP 1st40 5%</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --danger: #ef4444;
+            --success: #22c55e;
+            --border: #334155;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            margin: 0;
+            padding: 16px;
+            display: flex;
+            justify-content: center;
+        }
+        .container { width: 100%; max-width: 500px; }
+        .card {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+        }
+        h1 { font-size: 1.2rem; margin: 0 0 4px 0; }
+        .isin { font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 12px; }
+        .price-display { display: flex; justify-content: space-between; align-items: baseline; }
+        .current-price { font-size: 2rem; font-weight: 700; }
+        input[type="number"] {
+            width: 100%;
+            padding: 10px;
+            background-color: var(--bg-color);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 1rem;
+            box-sizing: border-box;
+            margin-top: 6px;
+        }
+        button {
+            width: 100%;
+            padding: 12px;
+            background-color: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        .log-list { list-style: none; padding: 0; margin: 0; max-height: 120px; overflow-y: auto; font-size: 0.8rem; }
+        .log-item { padding: 4px 0; border-bottom: 1px solid var(--border); color: var(--text-secondary); }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="card">
+        <h1>BTP 1st40 5%</h1>
+        <div class="isin">ISIN: IT0004532559</div>
+        <div class="price-display">
+            <div>
+                <span style="font-size:0.8rem; color:var(--text-secondary);">Prezzo Corrente</span>
+                <div class="current-price" id="priceVal">105.20</div>
+            </div>
+            <div id="statusIndicator" style="color: var(--success); font-weight: 600;">● Attivo</div>
+        </div>
+    </div>
+
+    <div class="card">
+        <label for="threshold" style="font-size:0.85rem; color:var(--text-secondary);">Soglia di Allarme Prezzo (€)</label>
+        <input type="number" id="threshold" step="0.05" value="104.00">
+        <button id="btnNotif" onclick="attivaNotificheAudio()">Abilita Notifiche e Audio</button>
+    </div>
+
+    <div class="card">
+        <h1 style="font-size:1rem; margin-bottom:8px;">Registro Eventi</h1>
+        <ul id="logList" class="log-list">
+            <li class="log-item">In attesa di attivazione...</li>
+        </ul>
+        <div style="display: flex; gap: 8px; margin-top: 10px;">
+            <button style="background:#334155; font-size:0.8rem;" onclick="simulaPrezzo(105.50)">Test Prezzo Alto</button>
+            <button style="background:#334155; font-size:0.8rem;" onclick="simulaPrezzo(103.00)">Test Sotto Soglia</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentPrice = 105.20;
+    let audioUnlocked = false;
+    
+    // Sintesi audio interna generata via codice (evita blocchi di file esterni MP3 su mobile)
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    function playBeep() {
+        if (!audioUnlocked) return;
+        try {
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sine';
+            osc.frequency.value = 880; // Nota La
+            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.4);
+        } catch(e) {
+            console.log(e);
+        }
+    }
+
+    function attivaNotificheAudio() {
+        audioUnlocked = true;
+        
+        // Sblocca subito l'AudioContext con un beep silenzioso o di conferma
+        playBeep();
+
+        if (!("Notification" in window)) {
+            alert("Il browser non supporta le notifiche.");
+            return;
+        }
+
+        Notification.requestPermission().then(permission => {
+            const btn = document.getElementById('btnNotif');
+            if (permission === "granted") {
+                btn.innerText = "Notifiche Attive ✓";
+                btn.style.backgroundColor = "var(--success)";
+                aggiungiLog("Permessi concessi correttamente.");
+                new Notification("BTP Monitor", { body: "Notifiche configurate con successo!" });
+            } else {
+                btn.innerText = "Permesso Negato ✕";
+                btn.style.backgroundColor = "var(--danger)";
+                aggiungiLog("Attenzione: permessi notifiche negati dal browser.");
+            }
+        }).catch(err => {
+            console.error(err);
+        });
+    }
+
+    function aggiungiLog(testo) {
+        const list = document.getElementById('logList');
+        const time = new Date().toLocaleTimeString();
+        const item = document.createElement('li');
+        item.className = 'log-item';
+        item.innerText = `[${time}] ${testo}`;
+        list.prepend(item);
+    }
+
+    function simulaPrezzo(valoreForzato = null) {
+        const soglia = parseFloat(document.getElementById('threshold').value);
+        if (valoreForzato !== null) {
+            currentPrice = valoreForzato;
+        } else {
+            const delta = (Math.random() - 0.5) * 0.1;
+            currentPrice = parseFloat((currentPrice + delta).toFixed(2));
+        }
+
+        const priceEl = document.getElementById('priceVal');
+        priceEl.innerText = currentPrice.toFixed(2);
+
+        if (currentPrice < soglia) {
+            priceEl.style.color = 'var(--danger)';
+            playBeep();
+            if (Notification.permission === "granted") {
+                new Notification("🚨 BTP 1st40 sotto soglia!", {
+                    body: `Prezzo attuale: ${currentPrice} € (Soglia: ${soglia} €)`
+                });
+            }
+            aggiungiLog(`ALERT: Prezzo a ${currentPrice} €`);
+        } else {
+            priceEl.style.color = 'var(--text-primary)';
+        }
+    }
+
+    setInterval(() => simulaPrezzo(null), 5000);
+</script>
+
+</body>
+</html>
